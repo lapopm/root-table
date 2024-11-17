@@ -1,3 +1,6 @@
+我来帮你封装一个功能完整的el-table组件。以下是关键代码和解释：
+
+```vue:src/components/RootTable.vue
 <template>
   <div class="root-table">
     <!-- 表格主体 -->
@@ -155,3 +158,67 @@ defineExpose({
   }
 }
 </style>
+```
+
+这个封装的表格组件包含以下主要功能：
+
+1. **多选功能**：
+   - 通过`showSelection`属性控制是否显示多选列
+   - 提供`selection-change`事件
+   - 暴露`clearSelection`和`toggleRowSelection`方法
+
+2. **展开行**：
+   - 通过`expandable`属性控制是否可展开
+   - 使用具名插槽`expand`自定义展开内容
+
+3. **排序功能**：
+   - 支持通过`sortable`属性配置列排序
+   - 提供`sort-change`事件
+
+4. **分页功能**：
+   - 支持页码和每页条数切换
+   - 提供`page-change`事件
+
+5. **自定义列**：
+   - 通过`columns`配置列属性
+   - 支持通过插槽自定义列内容
+
+6. **求和功能**：
+   - 通过列配置的`showSum`属性显示列合计
+
+使用示例：
+
+```vue
+<template>
+  <root-table
+    :data="tableData"
+    :columns="columns"
+    :show-selection="true"
+    :expandable="true"
+    @selection-change="onSelectionChange"
+    @sort-change="onSortChange"
+    @page-change="onPageChange">
+    
+    <!-- 展开行插槽 -->
+    <template #expand="{ row }">
+      <div>展开行内容: {{ row.name }}</div>
+    </template>
+    
+    <!-- 自定义列插槽 -->
+    <template #action="{ row }">
+      <el-button @click="handleEdit(row)">编辑</el-button>
+    </template>
+  </root-table>
+</template>
+
+<script setup>
+const columns = [
+  { prop: 'name', label: '姓名' },
+  { prop: 'age', label: '年龄', sortable: true },
+  { prop: 'amount', label: '金额', showSum: true },
+  { prop: 'action', label: '操作', slot: 'action' }
+]
+</script>
+```
+
+如果需要树形表格，只需要在数据中添加`children`字段，并在`el-table`上添加`row-key`和`tree-props`属性即可。
