@@ -1,224 +1,250 @@
-我来帮你封装一个功能完整的el-table组件。以下是关键代码和解释：
+
+
+可以实现。我们可以通过在列配置中添加`api`字段来指定不同层级的请求方法。以下是实现方案：
 
 ```vue:src/components/RootTable.vue
-<template>
-  <div class="root-table">
-    <!-- 表格主体 -->
-    <el-table
-      ref="tableRef"
-      v-bind="$attrs"
-      :data="tableData"
-      @selection-change="handleSelectionChange"
-      @sort-change="handleSortChange">
-      
-      <!-- 多选列 -->
-      <el-table-column v-if="showSelection" type="selection" width="55" />
-      
-      <!-- 展开行 -->
-      <el-table-column v-if="expandable" type="expand">
-        <template #default="scope">
-          <slot name="expand" :row="scope.row"></slot>
-        </template>
-      </el-table-column>
-
-      <!-- 动态列 -->
-      <template v-for="col in columns" :key="col.prop">
-        <el-table-column
-          v-bind="col"
-          :show-overflow-tooltip="true"
-          :sortable="col.sortable || 'custom'">
-          <!-- 自定义列内容 -->
-          <template #default="scope" v-if="col.slot">
-            <slot :name="col.slot" :row="scope.row"></slot>
-          </template>
-          <!-- 求和列 -->
-          <template #footer v-if="col.showSum">
-            {{ getSummaries(col.prop) }}
-          </template>
-        </el-table-column>
-      </template>
-    </el-table>
-
-    <!-- 分页器 -->
-    <el-pagination
-      v-if="showPagination"
-      v-model:current-page="currentPage"
-      v-model:page-size="pageSize"
-      :total="total"
-      :page-sizes="[10, 20, 50, 100]"
-      @size-change="handleSizeChange"
-      @current-change="handleCurrentChange"
-    />
-  </div>
-</template>
-
 <script setup>
-import { ref, computed } from 'vue'
+// ... 其他代码保持不变 ...
 
 const props = defineProps({
-  // 表格数据
-  data: {
-    type: Array,
-    default: () => []
+  // ... 其他 props ...
+  
+  // 默认的加载方法
+  loadMethod: {
+    type: Function,
+    default: null
   },
-  // 列配置
-  columns: {
-    type: Array,
-    default: () => []
-  },
-  // 是否显示多选
-  showSelection: {
-    type: Boolean,
-    default: false
-  },
-  // 是否可展开
-  expandable: {
-    type: Boolean,
-    default: false
-  },
-  // 是否显示分页
-  showPagination: {
-    type: Boolean,
-    default: true
-  },
-  // 总数据量
-  total: {
-    type: Number,
-    default: 0
+  // 不同层级的API配置
+  levelApis: {
+    type: Object,
+    default: () => ({})
+    // 例如: { 1: loadLevel1, 2: loadLevel2 }
   }
 })
 
-const emit = defineEmits([
-  'selection-change',
-  'sort-change',
-  'page-change'
-])
-
-// 表格实例
-const tableRef = ref(null)
-
-// 分页相关
-const currentPage = ref(1)
-const pageSize = ref(10)
-
-// 计算分页后的数据
-const tableData = computed(() => {
-  if (!props.showPagination) return props.data
-  const start = (currentPage.value - 1) * pageSize.value
-  return props.data.slice(start, start + pageSize.value)
-})
-
-// 多选改变
-const handleSelectionChange = (selection) => {
-  emit('selection-change', selection)
-}
-
-// 排序改变
-const handleSortChange = (sort) => {
-  emit('sort-change', sort)
-}
-
-// 页码改变
-const handleCurrentChange = (page) => {
-  currentPage.value = page
-  emit('page-change', { page, size: pageSize.value })
-}
-
-// 每页条数改变
-const handleSizeChange = (size) => {
-  pageSize.value = size
-  emit('page-change', { page: currentPage.value, size })
-}
-
-// 计算合计
-const getSummaries = (prop) => {
-  const values = props.data.map(item => Number(item[prop]))
-  return values.reduce((prev, curr) => prev + curr, 0)
-}
-
-// 暴露方法给父组件
-defineExpose({
-  tableRef,
-  // 清除选择
-  clearSelection: () => {
-    tableRef.value?.clearSelection()
-  },
-  // 设置选中行
-  toggleRowSelection: (row, selected) => {
-    tableRef.value?.toggleRowSelection(row, selected)
+// 懒加载节点
+const loadNode = async (row, treeNode, resolve) => {
+  try {
+    let children = []
+    const depth = getRowDepth(row)
+    const nextDepth = depth + 1
+    
+    // 优先使用对应层级的API
+    if (props.levelApis[nextDepth]) {
+      children = await props.levelApis[nextDepth](row)
+    } 
+    // 其次使用默认的loadMethod
+    else if (props.loadMethod) {
+      children = await props.loadMethod(row)
+    }
+    
+    resolve(children)
+  } catch (error) {
+    console.error('加载子节点失败:', error)
+    resolve([])
   }
-})
+}
 </script>
-
-<style lang="scss" scoped>
-.root-table {
-  .el-pagination {
-    margin-top: 20px;
-    justify-content: flex-end;
-  }
-}
-</style>
 ```
-
-这个封装的表格组件包含以下主要功能：
-
-1. **多选功能**：
-   - 通过`showSelection`属性控制是否显示多选列
-   - 提供`selection-change`事件
-   - 暴露`clearSelection`和`toggleRowSelection`方法
-
-2. **展开行**：
-   - 通过`expandable`属性控制是否可展开
-   - 使用具名插槽`expand`自定义展开内容
-
-3. **排序功能**：
-   - 支持通过`sortable`属性配置列排序
-   - 提供`sort-change`事件
-
-4. **分页功能**：
-   - 支持页码和每页条数切换
-   - 提供`page-change`事件
-
-5. **自定义列**：
-   - 通过`columns`配置列属性
-   - 支持通过插槽自定义列内容
-
-6. **求和功能**：
-   - 通过列配置的`showSum`属性显示列合计
 
 使用示例：
 
 ```vue
 <template>
   <root-table
-    :data="tableData"
+    ref="tableRef"
+    :data="treeData"
     :columns="columns"
-    :show-selection="true"
-    :expandable="true"
-    @selection-change="onSelectionChange"
-    @sort-change="onSortChange"
-    @page-change="onPageChange">
-    
-    <!-- 展开行插槽 -->
-    <template #expand="{ row }">
-      <div>展开行内容: {{ row.name }}</div>
-    </template>
-    
-    <!-- 自定义列插槽 -->
-    <template #action="{ row }">
-      <el-button @click="handleEdit(row)">编辑</el-button>
-    </template>
+    :lazy="true"
+    :level-apis="levelApis"
+    :default-expand-level="2"
+    @selection-change="onSelectionChange">
   </root-table>
 </template>
 
 <script setup>
+import { ref } from 'vue'
+import { getFirstLevel, getSecondLevel, getThirdLevel } from '@/api/tree'
+
+// 定义不同层级的加载方法
+const levelApis = {
+  1: async (row) => {
+    // 加载一级子节点
+    const res = await getFirstLevel({ parentId: row.id })
+    return res.data.map(item => ({
+      ...item,
+      hasChildren: true // 标记还有子节点
+    }))
+  },
+  2: async (row) => {
+    // 加载二级子节点，可能使用不同的API和参数
+    const res = await getSecondLevel({ 
+      parentId: row.id,
+      type: row.type,
+      // 其他特定参数
+    })
+    return res.data
+  },
+  3: async (row) => {
+    // 加载三级子节点
+    const res = await getThirdLevel({
+      parentId: row.id,
+      // 其他特定参数
+    })
+    return res.data
+  }
+}
+
+// API示例
+const mockApis = {
+  // 模拟一级数据加载
+  async getFirstLevel({ parentId }) {
+    return new Promise((resolve) => {
+      setTimeout(() => {
+        resolve({
+          data: [
+            {
+              id: `${parentId}-1`,
+              name: '一级部门',
+              type: 'department',
+              parentId
+            }
+          ]
+        })
+      }, 500)
+    })
+  },
+  
+  // 模拟二级数据加载
+  async getSecondLevel({ parentId, type }) {
+    return new Promise((resolve) => {
+      setTimeout(() => {
+        resolve({
+          data: [
+            {
+              id: `${parentId}-2`,
+              name: '二级团队',
+              type: 'team',
+              parentId
+            }
+          ]
+        })
+      }, 500)
+    })
+  },
+  
+  // 模拟三级数据加载
+  async getThirdLevel({ parentId }) {
+    return new Promise((resolve) => {
+      setTimeout(() => {
+        resolve({
+          data: [
+            {
+              id: `${parentId}-3`,
+              name: '三级成员',
+              type: 'member',
+              parentId
+            }
+          ]
+        })
+      }, 500)
+    })
+  }
+}
+
+// 初始数据
+const treeData = ref([
+  {
+    id: 'root',
+    name: '总公司',
+    type: 'company',
+    hasChildren: true
+  }
+])
+
+// 列配置
 const columns = [
-  { prop: 'name', label: '姓名' },
-  { prop: 'age', label: '年龄', sortable: true },
-  { prop: 'amount', label: '金额', showSum: true },
-  { prop: 'action', label: '操作', slot: 'action' }
+  { 
+    prop: 'name', 
+    label: '名称',
+    width: '200'
+  },
+  { 
+    prop: 'type', 
+    label: '类型',
+    formatter: (row) => {
+      const typeMap = {
+        company: '公司',
+        department: '部门',
+        team: '团队',
+        member: '成员'
+      }
+      return typeMap[row.type] || row.type
+    }
+  },
+  {
+    prop: 'action',
+    label: '操作',
+    slot: 'action',
+    width: '200'
+  }
 ]
 </script>
 ```
 
-如果需要树形表格，只需要在数据中添加`children`字段，并在`el-table`上添加`row-key`和`tree-props`属性即可。
+这种实现方式的优点：
+
+1. **灵活性**：
+   - 每个层级可以使用不同的API
+   - 可以传递不同的参数
+   - 可以处理不同的返回数据格式
+
+2. **可维护性**：
+   - 各层级的加载逻辑分离
+   - 便于修改和扩展
+   - 代码结构清晰
+
+3. **功能扩展**：
+   - 可以根据层级添加不同的处理逻辑
+   - 支持不同层级的数据转换
+   - 可以处理特殊的业务需求
+
+4. **错误处理**：
+   - 统一的错误处理机制
+   - 加载失败时的优雅降级
+
+使用建议：
+
+1. 建议将API请求封装在单独的文件中
+2. 可以添加加载状态显示
+3. 可以针对不同层级添加缓存机制
+4. 考虑添加重试机制
+5. 可以添加数据预处理的钩子函数
+
+```javascript
+// api/tree.js
+export const getFirstLevel = async (params) => {
+  // 实际的API请求
+  return await request({
+    url: '/api/department',
+    method: 'get',
+    params
+  })
+}
+
+export const getSecondLevel = async (params) => {
+  return await request({
+    url: '/api/team',
+    method: 'get',
+    params
+  })
+}
+
+export const getThirdLevel = async (params) => {
+  return await request({
+    url: '/api/member',
+    method: 'get',
+    params
+  })
+}
+```
