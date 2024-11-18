@@ -1,5 +1,30 @@
 <template>
   <div class="root-table">
+    <!-- 表格工具栏 -->
+    <div class="table-toolbar" v-if="showToolbar">
+      <div class="left">
+        <slot name="toolbar-left"></slot>
+      </div>
+      <div class="right">
+        <!-- 列显示控制器 -->
+        <el-popover v-if="showColumnFilter" trigger="click">
+          <template #reference>
+            <el-button :icon="Setting">列设置</el-button>
+          </template>
+          <el-checkbox-group v-model="visibleColumns">
+            <el-checkbox 
+              v-for="col in columnOptions"
+              :key="col.prop"
+              :label="col.prop"
+            >
+              {{ col.label }}
+            </el-checkbox>
+          </el-checkbox-group>
+        </el-popover>
+        <slot name="toolbar-right"></slot>
+      </div>
+    </div>
+
     <!-- 表格主体 -->
     <el-table
       ref="tableRef"
@@ -12,6 +37,7 @@
         lazy: props.lazy,
         load: loadNode,
       }"
+      :show-header="showHeader"
       :lazy="props.lazy"
       @selection-change="handleSelectionChange"
       @sort-change="handleSortChange"
@@ -27,8 +53,8 @@
       </el-table-column>
 
       <!-- 动态列 -->
-      <template v-for="col in columns" :key="col.prop">
-        <el-table-column v-bind="col" :show-overflow-tooltip="true" :sortable="col.sortable || 'custom'" :align="col.align || 'left'" :width="col.width">
+      <template v-for="col in columnOptions" :key="col.prop">
+        <el-table-column v-bind="col" :show-overflow-tooltip="true" :sortable="getSortable(col)" :align="col.align || 'left'" :width="col.width">
           <!-- 自定义列内容 -->
           <template #default="scope" v-if="col.slot">
             <slot 
@@ -60,7 +86,8 @@
 </template>
 
 <script setup>
-import { ref, computed } from 'vue'
+import { ref, computed, watch, onMounted, onUnmounted } from 'vue'
+import { Setting } from '@element-plus/icons-vue'
 
 const props = defineProps({
   // 表格数据
@@ -86,7 +113,7 @@ const props = defineProps({
   // 是否显示分页
   showPagination: {
     type: Boolean,
-    default: true,
+    default: false,
   },
   // 总数据量
   total: {
@@ -118,6 +145,49 @@ const props = defineProps({
     type: Object,
     default: () => ({})
     // 例如: { 1: loadLevel1, 2: loadLevel2 }
+  },
+  // 是否显示表格工具栏
+  showToolbar: {
+    type: Boolean,
+    default: true
+  },
+  // 是否显示列设置控制器
+  showColumnFilter: {
+    type: Boolean,
+    default: true
+  },
+  storageKey: {
+    type: String,
+    default: ''
+  },
+  // 虚拟滚动
+  useVirtual: {
+    type: Boolean,
+    default: false
+  },
+  rowHeight: {
+    type: Number,
+    default: 40
+  },
+  rowClassName: {
+    type: [String, Function],
+    default: ''
+  },
+  cellClassName: {
+    type: [String, Function],
+    default: ''
+  },
+  summaryMethod: {
+    type: Function,
+    default: null
+  },
+  spanMethod: {
+    type: Function,
+    default: null
+  },
+  showHeader: {
+    type: Boolean,
+    default: true
   }
 })
 
@@ -257,6 +327,115 @@ const initExpand = () => {
   }
 }
 
+// 获取排序属性
+const getSortable = (column) => {
+  // 如果明确设置了 sortable 为 false，则禁用排序
+  if (column.sortable === false) {
+    return false
+  }
+  // 如果设置了具体的排序方式（'custom' 或 true），则使用设置的值
+  if (column.sortable) {
+    return column.sortable
+  }
+  // 默认不排序
+  return false
+}
+
+const columnOptions = computed(() => 
+  props.columns.filter(col => 
+    // 过滤掉没有 label 的列和特殊列（如操作列）
+    col.label
+  )
+)
+
+// 列显示控制
+const visibleColumns = ref([]) // 初始化为空数组
+
+// 初始化可见列
+onMounted(() => {
+  // 只初始化有效的列
+  visibleColumns.value = columnOptions.value.map(col => col.prop)
+  loadSavedColumns()
+})
+
+// 监听列变化
+watch(() => props.columns, () => {
+  // 确保 visibleColumns 中只包含有效的列
+  visibleColumns.value = visibleColumns.value.filter(prop => 
+    columnOptions.value.some(col => col.prop === prop)
+  )
+}, { deep: true })
+
+// 加载保存的列设置
+const loadSavedColumns = () => {
+  if (props.storageKey) {
+    try {
+      const saved = localStorage.getItem(`table_columns_${props.storageKey}`)
+      if (saved) {
+        visibleColumns.value = JSON.parse(saved)
+      }
+    } catch (error) {
+      console.error('加载列设置失败:', error)
+    }
+  }
+}
+
+onMounted(() => {
+  loadSavedColumns()
+})
+
+// 新增导出方法
+const exportTable = async (options = {}) => {
+  const {
+    filename = 'table-export.xlsx',
+    formatter = null,
+    onlySelected = false
+  } = options
+
+  try {
+    const data = onlySelected ? selectedRows.value : props.data
+    const exportData = formatter ? data.map(formatter) : data
+    
+    // 使用 xlsx 库导出
+    const worksheet = XLSX.utils.json_to_sheet(exportData)
+    const workbook = XLSX.utils.book_new()
+    XLSX.utils.book_append_sheet(workbook, worksheet, 'Sheet1')
+    XLSX.writeFile(workbook, filename)
+  } catch (error) {
+    console.error('导出失败:', error)
+  }
+}
+
+// 状态持久化
+const saveTableState = () => {
+  if (!props.storageKey) return
+  
+  const state = {
+    visibleColumns: visibleColumns.value,
+    pageSize: pageSize.value,
+    sortConfig: currentSort.value
+  }
+  localStorage.setItem(`table_state_${props.storageKey}`, JSON.stringify(state))
+}
+
+const loadTableState = () => {
+  if (!props.storageKey) return
+  
+  try {
+    const state = JSON.parse(localStorage.getItem(`table_state_${props.storageKey}`))
+    if (state) {
+      visibleColumns.value = state.visibleColumns
+      pageSize.value = state.pageSize
+      // 恢复排序状态
+      if (state.sortConfig) {
+        handleSortChange(state.sortConfig)
+      }
+    }
+  } catch (error) {
+    console.error('加载表格状态失败:', error)
+  }
+}
+
 // 暴露方法给父组件
 defineExpose({
   tableRef,
@@ -270,7 +449,58 @@ defineExpose({
   },
   expandAll,
   expandToLevel,
-  getRowDepth
+  getRowDepth,
+  exportTable
+})
+
+const editingRows = ref(new Set())
+
+const isEditing = (row) => editingRows.value.has(row.id)
+
+const startEdit = (row) => {
+  editingRows.value.add(row.id)
+}
+
+const endEdit = async (row) => {
+  try {
+    await validateRow(row)
+    await saveRow(row)
+    editingRows.value.delete(row.id)
+  } catch (error) {
+    console.error('保存失败:', error)
+  }
+}
+
+// 启用拖拽排序
+const enableDragSort = () => {
+  if (!tableRef.value) return
+  
+  const tbody = tableRef.value.$el.querySelector('.el-table__body tbody')
+  sortable.create(tbody, {
+    handle: '.drag-handle',
+    onEnd: ({ oldIndex, newIndex }) => {
+      const data = [...props.data]
+      const [moved] = data.splice(oldIndex, 1)
+      data.splice(newIndex, 0, moved)
+      emit('update:data', data)
+    }
+  })
+}
+
+// 表格高度自适应
+const tableHeight = ref(0)
+onMounted(() => {
+  const updateHeight = () => {
+    if (tableRef.value?.$el) {
+      const { top } = tableRef.value.$el.getBoundingClientRect()
+      tableHeight.value = window.innerHeight - top - 20
+    }
+  }
+  updateHeight()
+  window.addEventListener('resize', updateHeight)
+  onUnmounted(() => {
+    window.removeEventListener('resize', updateHeight)
+  })
 })
 </script>
 
